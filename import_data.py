@@ -26,6 +26,7 @@ from django.utils.timezone import utc
 from datetime import datetime, timedelta
 
 from datea_api.utils import remove_accents
+from django.template.defaultfilters import slugify
 
 tags = {}
 categorias = {}
@@ -44,6 +45,9 @@ replace_users = {}
 
 datea = 'datea.pe'
 
+
+skip_mapeos = [80, 138]
+replace_mapeos = {138: 139}
 
 
 def get_data():
@@ -254,13 +258,14 @@ def create_campaigns():
 
 	for pk, fields in mapeos.iteritems():
 
+		if pk in skip_mapeos:
+			continue
 		#get extra data
 		#adata = json.load(urllib2.urlopen('http://datea.pe/api/v1/mapping/'+str(pk)+'/?format=json'))
 
 		c = Campaign(pk=pk)
 		c.user_id = get_user(fields['user']['id'])
 		c.name = fields['name']
-		c.slug = fields['slug']
 		c.published = fields['published']
 		c.featured = fields['featured']
 		c.short_description = fields['short_description']
@@ -286,6 +291,12 @@ def create_campaigns():
 			tname = remove_accents(hashtagify(fields['hashtag'].replace('#', '')))
 		else:
 			tname = remove_accents(hashtagify(fields['name'].replace('#', '')))
+
+		if Campaign.objects.filter(slug=slugify(tname)).count() == 0:
+			c.slug = slugify(tname)
+		else:
+			c.slug = slugify(fields['slug'])
+
 
 		print "CAMPAIGN TAG NAME", tname
 		
@@ -332,7 +343,10 @@ def create_dateos():
 		d.campaign_id = fields['action']
 		d.client_domain = datea
 
-		campaign = Campaign.objects.get(pk=fields['action'])
+		cid = fields['action']
+		if cid in replace_mapeos:
+			cid = replace_mapeos[cid]
+		campaign = Campaign.objects.get(pk=cid)
 
 		# agregar categoria del mapeo anterior
 		d.category = campaign.category
@@ -521,10 +535,10 @@ def fix_stats():
 	# Fix campaign stats
 	# only for main tags
 	for c in Campaign.objects.all():
-		c.dateo_count = Dateo.objects.filter(tags__in=[c.main_tag]).count()
+		c.dateo_count = Dateo.objects.filter(tags=c.main_tag).count()
 		c.follow_count = Follow.objects.filter(content_type__model="tag", object_id=c.main_tag.pk).count()
 		comments = 0
-		for d in Dateo.objects.filter(tags__in=[c.main_tag]):
+		for d in Dateo.objects.filter(tags=c.main_tag):
 			comments += d.comment_count
 		c.comment_count = comments
 		c.save()
